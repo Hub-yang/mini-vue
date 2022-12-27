@@ -23,4 +23,9 @@ createApp({
     // return h3
     return createVNode("h3", {}, this.title)
   },
+  // mounted() {
+  //   setTimeout(() => {
+  //     this.title = "666"
+  //   }, 2000)
+  // },
 }).mount("#app")

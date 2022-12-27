@@ -6,6 +6,8 @@ import { reactive, effect } from "../reactivity"
 // 2.创建自定义渲染器（custom renderer api）
 export function createRenderer(options) {
   // render方法负责渲染组件内容,其中平台相关代码通过option实现
+  // 从options中解构出需要的方法并重新命名，重命名是为了增加辨识度，避免冲突
+  const { createElement: hostCreateElement, insert: hostInsert } = options
   const render = (vnode, container) => {
     // // 获取宿主元素
     // const container = options.querySelector(selector)
@@ -32,50 +34,100 @@ export function createRenderer(options) {
       patch(container._vnode || null, vnode, container)
       container._vnode = vnode
     }
+  }
 
-    //patch方法：n1:老节点；n2:新节点
-    const patch = (n1, n2, container) => {
-      // 根据n2判断节点类型：如果是字符串说明是原生节点element；如果是对象说明是组件
-      // 从n2结垢出type进行判断
-      const { type } = n2
-      if (typeof type === "string") {
-        // 处理原生节点
-        processElement(...arguments)
+  //5.1patch方法：n1:老节点；n2:新节点
+  const patch = (n1, n2, container) => {
+    // 根据n2判断节点类型：如果是字符串说明是原生节点element；如果是对象说明是组件
+    // 从n2结垢出type进行判断
+    const { type } = n2
+    if (typeof type === "string") {
+      // 处理原生节点
+      processElement(n1, n2, container)
+    } else {
+      // 处理组件
+      processComponent(n1, n2, container)
+    }
+  }
+
+  // 5.2处理组件
+  const processComponent = (n1, n2, container) => {
+    // 如果n1不存在，说明是首次挂载，即根组件的挂载
+    if (n1 === null) {
+      // 挂载流程
+      mountComponent(n2, container)
+    } else {
+      // patch流程，后续添加
+    }
+  }
+
+  // 组件挂载流程做三件事
+  // 1.组件实例化
+  // 2.状态初始化（响应式）
+  // 3.副作用安装
+  const mountComponent = (initialVNode, container) => {
+    // 创建组件实例
+    const instance = {
+      data: {},
+      vnode: initialVNode,
+      isMounted: false,
+    }
+    // 初始化组件状态（我们的例子中即做根组件data的响应式）
+    const { data: dataOptions } = instance.vnode.type
+    instance.data = reactive(dataOptions())
+
+    // 安装(收集)渲染函数副作用
+    setupRenderEffect(instance, container)
+  }
+
+  const setupRenderEffect = (instance, container) => {
+    // 声明组件更新函数
+    const componentUpdateFn = () => {
+      // 判断当前组件是否挂载，没有则走创建流程，有则走更新流程
+      if (!instance.isMounted) {
+        // 创建流程
+        // 执行组件render，获取其vnode（首次为根组件的render）
+        const { render } = instance.vnode.type
+        const vnode = render.call(instance.data)
+        // 递归patch当前vnode,首次第一个参数传null
+        patch(null, vnode, container)
+        // 执行生命周期挂载钩子
+        if (instance.vnode.type.mounted) {
+          instance.vnode.type.mounted.call(instance.data)
+        }
       } else {
-        // 处理组件
-        processComponent(...arguments)
+        // 更新流程，后续添加
       }
     }
+    // 建立更新机制,收集被激活的副作用
+    effect(componentUpdateFn)
+    // 首次执行组件更新函数
+    componentUpdateFn()
+  }
 
-    // 处理组件
-    const processComponent = (n1, n2, container) => {
-      // 如果n1不存在，说明是首次挂载，即根组件的挂载
-      if (n1 === null) {
-        // 挂载流程
-        mountComponent(n2, container)
-      } else {
-        // patch流程
-      }
+  // 5.3处理节点
+  const processElement = (n1, n2, container) => {
+    // 如果n1不存在则是首次执行，需要创建节点(转换真实dom的操作)
+    if (n1 === null) {
+      mountElement(n2, container)
+    } else {
+    }
+  }
+
+  const mountElement = (vnode, container) => {
+    // 创建真实dom节点,这里将创建好的节点保存在vnode的el中供后续更新使用
+    const el = (vnode.el = hostCreateElement(vnode.type))
+    // 执行判断，设置节点内容
+    // 文本则直接赋值
+    if (typeof vnode.children === "string") {
+      el.textContent = vnode.children
+      // 数组则需要递归创建子节点
+    } else {
+      vnode.children.forEach((child) => patch(null, child, el))
     }
 
-    // 挂载流程做三件事
-    // 1.组件实例化
-    // 2.状态初始化（响应式）
-    // 3.副作用安装
-    const mountComponent = (initialVNode, container) => {
-      // 创建组件实例
-      const instance = {
-        data: {},
-        vnode: initialVNode,
-        isMounted: false,
-      }
-      // 初始化组件状态（我们的例子中即做根组件data的响应式）
-      const { data: dataOptions } = instance.vnode.type
-      instance.data = reactive(dataOptions())
-
-      // 安装(收集)渲染函数副作用
-      setupRenderEffect(instance, container)
-    }
+    // 追加元素到宿主
+    hostInsert(el, container)
   }
   return {
     render,
@@ -89,11 +141,11 @@ export function createAppApi(render) {
   return function createApp(rootComponent) {
     // app为应用实例，所有开发者可以调用的方法在这里实现
     const app = {
-      mount(selector) {
+      mount(container) {
         // 这里创建根组件的虚拟DOM,这里注意此时传入的type是一个对象
         const vnode = createVNode(rootComponent)
         // 这里render其实是传入根组件的vnode，并将根组件的vnode转换为真实dom，将其追加到宿主元素
-        render(vnode, selector)
+        render(vnode, container)
       },
     }
     return app
