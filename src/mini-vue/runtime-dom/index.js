@@ -20,6 +20,14 @@ const rendererOptions = {
   createElement(tag) {
     return document.createElement(tag)
   },
+  // 删除节点
+  remove(el) {
+    // 查找父节点
+    const parent = el.parentElement
+    if (parent) {
+      parent.removeChild(el)
+    }
+  },
 }
 // ensureRenderer确保renderer单例
 function ensureRenderer() {

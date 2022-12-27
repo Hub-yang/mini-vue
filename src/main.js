@@ -18,14 +18,36 @@ createApp({
     }
   },
   render() {
-    // const h3 = document.createElement("h3")
-    // h3.textContent = this.title
-    // return h3
-    return createVNode("h3", {}, this.title)
+    // 对title类型进行判断，做不同处理
+    if (Array.isArray(this.title)) {
+      return createVNode(
+        "h3",
+        {},
+        this.title.map((item) => createVNode("p", {}, item))
+      )
+    } else {
+      return createVNode("h3", {}, this.title)
+    }
   },
-  // mounted() {
-  //   setTimeout(() => {
-  //     this.title = "666"
-  //   }, 2000)
-  // },
+  mounted() {
+    // 验证字符串变字符串的更新
+    setTimeout(() => {
+      this.title = "666"
+    }, 1000)
+    // 验证字符串变数组的更新
+    setTimeout(() => {
+      this.title = ["one", "two"]
+    }, 2000)
+    // 验证数组变字符串的更新
+    setTimeout(() => {
+      this.title = "888"
+    }, 3000)
+    // 验证数组变数组的更新(增删改)
+    setTimeout(() => {
+      this.title = ["three", "four"]
+    }, 4000)
+    setTimeout(() => {
+      this.title = ["five"]
+    }, 5000)
+  },
 }).mount("#app")

@@ -7,7 +7,12 @@ import { reactive, effect } from "../reactivity"
 export function createRenderer(options) {
   // render方法负责渲染组件内容,其中平台相关代码通过option实现
   // 从options中解构出需要的方法并重新命名，重命名是为了增加辨识度，避免冲突
-  const { createElement: hostCreateElement, insert: hostInsert } = options
+  const {
+    createElement: hostCreateElement,
+    insert: hostInsert,
+    setElementText: hostSetElementText,
+    remove: hostRemove,
+  } = options
   const render = (vnode, container) => {
     // // 获取宿主元素
     // const container = options.querySelector(selector)
@@ -83,20 +88,31 @@ export function createRenderer(options) {
   const setupRenderEffect = (instance, container) => {
     // 声明组件更新函数
     const componentUpdateFn = () => {
+      const { render } = instance.vnode.type
       // 判断当前组件是否挂载，没有则走创建流程，有则走更新流程
       if (!instance.isMounted) {
         // 创建流程
         // 执行组件render，获取其vnode（首次为根组件的render）
-        const { render } = instance.vnode.type
-        const vnode = render.call(instance.data)
+        // 将获取的vnode保存在instance的subtree中，供下次更新作为旧节点进行比较
+        const vnode = (instance.subtree = render.call(instance.data))
         // 递归patch当前vnode,首次第一个参数传null
         patch(null, vnode, container)
         // 执行生命周期挂载钩子
         if (instance.vnode.type.mounted) {
           instance.vnode.type.mounted.call(instance.data)
         }
+        // 更新isMounted标识符
+        instance.isMounted = true
       } else {
-        // 更新流程，后续添加
+        // 更新流程
+        // 拿出上一次的vnode
+        const preVnode = instance.subtree
+        // 执行render拿到当前的vnode
+        const nextVnode = render.call(instance.data)
+        // 保存当前的vnode
+        instance.subtree = nextVnode
+        // 执行patch，传入新旧两个vnode
+        patch(preVnode, nextVnode)
       }
     }
     // 建立更新机制,收集被激活的副作用
@@ -109,8 +125,11 @@ export function createRenderer(options) {
   const processElement = (n1, n2, container) => {
     // 如果n1不存在则是首次执行，需要创建节点(转换真实dom的操作)
     if (n1 === null) {
+      // 挂载阶段
       mountElement(n2, container)
     } else {
+      // 更新阶段
+      patchElement(n1, n2)
     }
   }
 
@@ -128,6 +147,61 @@ export function createRenderer(options) {
 
     // 追加元素到宿主
     hostInsert(el, container)
+  }
+
+  // 编写patchElement
+  const patchElement = (n1, n2) => {
+    // 获取要更新的元素节点
+    // 元素挂载阶段已经将元素保存在了vnode的el中，可以从n1也就是老节点的vnode中直接获取，然后再将el保存在新节点的vnode也就是n2中，供下一次更新使用
+    const el = (n2.el = n1.el)
+    // 更新type相同的节点，实际上还要考虑key（这里省略key的判断）
+    if (n1.type === n2.type) {
+      // 获取新旧vnode的子元素
+      const oldCh = n1.children
+      const newCh = n2.children
+      // 根据子元素情况做不同处理
+      // 如果老节点是字符串
+      if (typeof oldCh === "string") {
+        // 新节点也是字符串，则为字符串的替换
+        if (typeof newCh === "string") {
+          hostSetElementText(el, newCh)
+        } else {
+          // 新节点是其他子元素，则先清空文本，在进行批量创建追加
+          hostSetElementText(el, "")
+          // patch创建并追加子元素(批量处理)
+          newCh.forEach((v) => patch(null, v, el))
+        }
+        // 如果老节点是数组
+      } else {
+        // 新节点是字符串，则清空el并设置文本,代码表示为直接将文本赋值给el
+        if (typeof newCh === "string") {
+          hostSetElementText(el, newCh)
+          // 新节点也是数组：最复杂的情况，需要diff算法
+        } else {
+          updateChildren(oldCh, newCh, el)
+        }
+      }
+    } else {
+      console.log("新旧节点不同")
+    }
+  }
+
+  // 编写两个数组情况的更新：最简单的diff算法
+  const updateChildren = (oldCh, newCh, parent) => {
+    // 最简单的diff思路：新旧数组直接进行比较，共同部分不进行比较直接更新，再比较两者长度，新的长则将追加多余部分，老的长则删除多余部分
+    // 第一步：获取较短的数组长度，即为新旧节点的共同部分，循环进行patch更新，注意是更新
+    let len = Math.min(oldCh.length, newCh.length)
+    for (let i = 0; i < len; i++) {
+      patch(oldCh[i], newCh[i])
+    }
+    // 第二步：判断两者长度，新数组长则将剩余部分创建追加，老数组长则将剩余部分删除
+    if (newCh.length > oldCh.length) {
+      // 截取剩余部分进行创建追加
+      newCh.slice(len).forEach((child) => patch(null, child, parent))
+    } else {
+      // 截取剩余部分进行删除，删除方法单独创建,注意这里是删除虚拟dom也就是child的el，这才是真实节点
+      oldCh.slice(len).forEach((child) => hostRemove(child.el))
+    }
   }
   return {
     render,
