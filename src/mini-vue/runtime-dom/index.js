@@ -28,6 +28,9 @@ const rendererOptions = {
       parent.removeChild(el)
     }
   },
+  parentElement(el) {
+    return el.parentElement
+  },
 }
 // ensureRenderer确保renderer单例
 function ensureRenderer() {

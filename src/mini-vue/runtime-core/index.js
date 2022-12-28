@@ -12,6 +12,7 @@ export function createRenderer(options) {
     insert: hostInsert,
     setElementText: hostSetElementText,
     remove: hostRemove,
+    parentElement: hostParentElement,
   } = options
   const render = (vnode, container) => {
     // // 获取宿主元素
@@ -183,6 +184,12 @@ export function createRenderer(options) {
       }
     } else {
       console.log("新旧节点不同")
+      // 保存父节点
+      const parent = hostParentElement(n1.el)
+      // 删除旧节点
+      hostRemove(n1.el)
+      // 创建新节点
+      patch(null, n2, parent)
     }
   }
 
